@@ -26,7 +26,11 @@
 #endif
 
 #include <libevdev/libevdev.h>
+#ifdef __linux__
 #include <sys/signalfd.h>
+#else
+#include <sys/event.h>
+#endif
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -42,8 +46,8 @@
 #define max(a, b) (((a) > (b)) ? (a) : (b))
 
 static int
-usage(void) {
-	printf("Usage: %s /dev/input/event0\n", program_invocation_short_name);
+usage(const char *argv0) {
+	printf("Usage: %s /dev/input/event0\n", argv0);
 	printf("\n");
 	printf("This tool reads the touchpad events from the kernel and calculates\n "
 	       "the minimum and maximum for the x and y coordinates, respectively.\n");
@@ -99,25 +103,39 @@ handle_event(struct dimensions *d, const struct input_event *ev) {
 
 static int
 mainloop(struct libevdev *dev, struct dimensions *dim) {
-	struct pollfd fds[2];
 	sigset_t mask;
+
+	sigemptyset(&mask);
+	sigaddset(&mask, SIGINT);
+	sigprocmask(SIG_BLOCK, &mask, NULL);
+
+#ifdef __linux__
+	struct pollfd fds[2];
 
 	fds[0].fd = libevdev_get_fd(dev);
 	fds[0].events = POLLIN;
 
-	sigemptyset(&mask);
-	sigaddset(&mask, SIGINT);
 	fds[1].fd = signalfd(-1, &mask, SFD_NONBLOCK);
 	fds[1].events = POLLIN;
 
-	sigprocmask(SIG_BLOCK, &mask, NULL);
-
 	while (poll(fds, 2, -1)) {
-		struct input_event ev;
-		int rc;
-
 		if (fds[1].revents)
 			break;
+#else
+	int kq = kqueue();
+	struct kevent evlist[2];
+
+	EV_SET(&evlist[0], SIGINT, EVFILT_SIGNAL, EV_ADD, 0, 0, 0);
+	EV_SET(&evlist[1], libevdev_get_fd(dev), EVFILT_READ, EV_ADD, 0, 0, 0);
+
+	kevent(kq, evlist, 2, NULL, 0, NULL);
+
+	while (kevent(kq, NULL, 0, evlist, 1, NULL) == 1) {
+		if (evlist[0].filter == EVFILT_SIGNAL)
+			break;
+#endif
+		struct input_event ev;
+		int rc;
 
 		do {
 			rc = libevdev_next_event(dev, LIBEVDEV_READ_FLAG_NORMAL, &ev);
@@ -144,11 +162,11 @@ int main (int argc, char **argv) {
 	struct dimensions dim;
 
 	if (argc < 2)
-		return usage();
+		return usage(argv[0]);
 
 	path = argv[1];
 	if (path[0] == '-')
-		return usage();
+		return usage(argv[0]);
 
 	fd = open(path, O_RDONLY|O_NONBLOCK);
 	if (fd < 0) {

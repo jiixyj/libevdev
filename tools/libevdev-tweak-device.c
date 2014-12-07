@@ -44,13 +44,13 @@ static int led_state = -1;
 const char *path;
 
 static void
-usage(void)
+usage(const char *argv0)
 {
 	printf("%s --abs <axis> [--min min] [--max max] [--res res] [--fuzz fuzz] [--flat flat] /dev/input/eventXYZ\n"
 	       "\tChange the absinfo struct for the named axis\n"
 	       "%s --led <led> --on|--off /dev/input/eventXYZ\n"
 	       "\tEnable or disable the named LED\n",
-	       program_invocation_short_name, program_invocation_short_name);
+	       argv0, argv0);
 }
 
 enum opts {
@@ -223,7 +223,7 @@ main(int argc, char **argv)
 
 	rc = parse_options(argc, argv);
 	if (rc != 0 || !path) {
-		usage();
+		usage(argv[0]);
 		goto out;
 	}
 
