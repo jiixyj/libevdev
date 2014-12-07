@@ -3,7 +3,7 @@ PRINT_DIRECTORY_FLAGS_1=
 PRINT_DIRECTORY_FLAGS_0=--no-print-directory
 PRINT_DIRECTORY_FLAGS_=$(PRINT_DIRECTORY_FLAGS_$(AM_DEFAULT_VERBOSITY))
 AM_MAKEFLAGS = $(PRINT_DIRECTORY_FLAGS_$(V))
-SUBDIRS = doc libevdev tools test
+SUBDIRS = doc libevdev tools
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = libevdev.pc

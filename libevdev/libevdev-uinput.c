@@ -20,6 +20,8 @@
  * OF THIS SOFTWARE.
  */
 
+#ifdef __linux__
+
 #include <config.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -400,3 +402,5 @@ libevdev_uinput_write_event(const struct libevdev_uinput *uinput_dev,
 
 	return rc < 0 ? -errno : 0;
 }
+
+#endif
