@@ -36,6 +36,7 @@
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -68,12 +69,32 @@ tv2us(const struct timeval *tv)
 	return tv->tv_sec * 1000000 + tv->tv_usec;
 }
 
-static inline double
-get_frequency(double last, double current)
-{
-	if (current == last)
-		return 0;
-	return 1000000.0/(current - last);
+#define EVENT_SIZ 32
+
+static int double_cmp(void const *x, void const *y) {
+	double xx = *(double const *)x, yy = *(double const *)y;
+	if (xx < yy)
+		return -1;
+	if (xx > yy)
+		return 1;
+	return 0;
+}
+
+static inline double get_frequency(double event_times[EVENT_SIZ]) {
+	double differences[EVENT_SIZ - 1];
+	int d_index = 0;
+
+	for (int i = 0; i < EVENT_SIZ; ++i) {
+		int next_index = (i + 1) % EVENT_SIZ;
+		if (event_times[i] < event_times[next_index] &&
+		    d_index < EVENT_SIZ - 1) {
+			differences[d_index++] =
+			    event_times[next_index] - event_times[i];
+		}
+	}
+	qsort(differences, d_index, sizeof(differences[0]), double_cmp);
+
+	return 1000000.0 / (differences[EVENT_SIZ / 2]);
 }
 
 static int
@@ -107,15 +128,28 @@ handle_event(struct measurements *m, const struct input_event *ev)
 		const int idle_reset = 3000000; /* us */
 		uint64_t last_us = m->us;
 
+		static double event_times[EVENT_SIZ];
+		static size_t event_times_index = 0;
+		static bool event_list_valid = false;
+
 		m->us = tv2us(&ev->time);
 
 		/* reset after pause */
 		if (last_us + idle_reset < m->us) {
 			m->frequency = 0.0;
 			m->distance = 0;
+			event_times_index = 0;
+			event_list_valid = false;
 		} else {
-			double freq = get_frequency(last_us, m->us);
-			m->frequency = max(freq, m->frequency);
+			event_times[event_times_index++] = m->us;
+			if (event_times_index == EVENT_SIZ) {
+				event_list_valid = true;
+				event_times_index = 0;
+			}
+			if (event_list_valid) {
+				double freq = get_frequency(event_times);
+				m->frequency = max(freq, m->frequency);
+			}
 			return print_current_values(m);
 		}
 
