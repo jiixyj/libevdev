@@ -24,6 +24,7 @@
 #include <config.h>
 
 #include <getopt.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,6 +95,40 @@ parse_resolution_argument(const char *arg, int *xres, int *yres)
 	return true;
 }
 
+static inline bool
+safe_atoi(const char *str, int *val)
+{
+        char *endptr;
+        long v;
+
+        v = strtol(str, &endptr, 10);
+        if (str == endptr)
+                return false;
+        if (*str != '\0' && *endptr != '\0')
+                return false;
+
+        if (v > INT_MAX || v < INT_MIN)
+                return false;
+
+        *val = v;
+        return true;
+}
+
+static int
+parse_event_code(int type, const char *str)
+{
+	int code;
+
+	code = libevdev_event_code_from_name(type, str);
+	if (code != -1)
+		return code;
+
+	if (safe_atoi(str, &code))
+		return code;
+
+	return -1;
+}
+
 static int
 parse_options_abs(int argc, char **argv, unsigned int *changes,
 		  int *axis, struct input_absinfo *absinfo)
@@ -122,8 +157,7 @@ parse_options_abs(int argc, char **argv, unsigned int *changes,
 
 		switch (c) {
 			case OPT_ABS:
-				*axis = libevdev_event_code_from_name(EV_ABS,
-								     optarg);
+				*axis = parse_event_code(EV_ABS, optarg);
 				if (*axis == -1)
 					goto error;
 				break;
@@ -176,8 +210,7 @@ parse_options_led(int argc, char **argv, int *led, int *led_state)
 
 		switch (c) {
 			case OPT_LED:
-				*led = libevdev_event_code_from_name(EV_LED,
-								     optarg);
+				*led = parse_event_code(EV_LED, optarg);
 				if (*led == -1)
 					goto error;
 				break;
@@ -238,7 +271,7 @@ error:
 }
 
 static enum mode
-parse_options_mode(int argc, char **argv, const char **path)
+parse_options_mode(int argc, char **argv)
 {
 	int c;
 	int option_index = 0;
@@ -254,7 +287,7 @@ parse_options_mode(int argc, char **argv, const char **path)
 	if (argc < 2)
 		return mode;
 
-	while (1) {
+	while (mode == MODE_NONE) {
 		c = getopt_long(argc, argv, "h", opts, &option_index);
 		if (c == -1)
 			break;
@@ -278,10 +311,8 @@ parse_options_mode(int argc, char **argv, const char **path)
 		}
 	}
 
-	if (optind >= argc)
+	if (optind >= argc && mode != MODE_HELP)
 		return MODE_NONE;
-
-	*path = argv[optind];
 
 	return mode;
 }
@@ -368,7 +399,7 @@ main(int argc, char **argv)
 {
 	struct libevdev *dev = NULL;
 	int fd = -1;
-	int rc = 1;
+	int rc = EXIT_FAILURE;
 	enum mode mode;
 	const char *path;
 	struct input_absinfo absinfo;
@@ -379,7 +410,7 @@ main(int argc, char **argv)
 	int xres = 0,
 	    yres = 0;
 
-	mode = parse_options_mode(argc, argv, &path);
+	mode = parse_options_mode(argc, argv);
 	switch (mode) {
 		case MODE_HELP:
 			rc = EXIT_SUCCESS;
@@ -407,8 +438,17 @@ main(int argc, char **argv)
 	if (rc != EXIT_SUCCESS)
 		goto out;
 
+	if (optind >= argc) {
+		rc = EXIT_FAILURE;
+		usage();
+		goto out;
+	}
+
+	path = argv[optind];
+
 	fd = open(path, O_RDWR);
 	if (fd < 0) {
+		rc = EXIT_FAILURE;
 		perror("Failed to open device");
 		goto out;
 	}
